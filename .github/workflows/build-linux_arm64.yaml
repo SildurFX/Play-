@@ -1,6 +1,7 @@
 name: Build Linux ARM64
 
 on: [push, pull_request]
+
 jobs:
   build_linux_arm64:
     runs-on: ubuntu-24.04-arm
@@ -8,7 +9,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install libcurl4-openssl-dev libgl1-mesa-dev libglu1-mesa-dev libalut-dev libevdev-dev qt6-base-dev
+        sudo apt install -y libcurl4-openssl-dev libgl1-mesa-dev libglu1-mesa-dev libalut-dev libevdev-dev qt6-base-dev
     - name: Checkout
       uses: actions/checkout@v6
       with:
@@ -20,12 +21,37 @@ jobs:
       run: |
         mkdir build
         cd build
-        cmake .. -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=./appdir/usr -DBUILD_LIBRETRO_CORE=yes
-    - name: Build
+        cmake .. -G"Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_LIBRETRO_CORE=no
+    - name: Build and Install to Local AppDir
       run: |
         cd build
         cmake --build . --config Release -j $(nproc)
-    - name: Run Tests
+        make install DESTDIR=AppDir
+    - name: Package as AppImage using linuxdeploy
       run: |
-        cd build
-        ctest -C Release
+        curl -LO https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage
+        chmod +x linuxdeploy-aarch64.AppImage
+    
+        ./linuxdeploy-aarch64.AppImage --appimage-extract
+
+        mkdir -p build/AppDir/usr/share/applications/
+        mkdir -p build/AppDir/usr/share/icons/hicolor/512x512/apps/
+        
+        echo -e "[Desktop Entry]\nName=Play!\nExec=Play\nIcon=play\nType=Application\nCategories=Game;Emulator;" > build/AppDir/usr/share/applications/play.desktop
+        
+        if [ -f Source/frontends/qt/resources/images/play.png ]; then
+          cp Source/frontends/qt/resources/images/play.png build/AppDir/usr/share/icons/hicolor/512x512/apps/play.png
+        elif [ -f Source/frontends/qt/resources/images/play.svg ]; then
+          mkdir -p build/AppDir/usr/share/icons/hicolor/scalable/apps/
+          cp Source/frontends/qt/resources/images/play.svg build/AppDir/usr/share/icons/hicolor/scalable/apps/play.svg
+        else
+          touch build/AppDir/usr/share/icons/hicolor/512x512/apps/play.png
+        fi
+
+        export OUTPUT="Play-Emulator-ARM64.AppImage"
+        ./squashfs-root/AppRun --appdir build/AppDir --output appimage
+    - name: Upload Standalone AppImage
+      uses: actions/upload-artifact@v4
+      with:
+        name: play-emulator-portable-arm64
+        path: Play-Emulator-ARM64.AppImage
